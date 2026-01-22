@@ -280,6 +280,19 @@ public class PulsarRoutineLoadJob extends RoutineLoadJob {
             return true;
         }
 
+        // When pause_on_fatal_parse_error is false (default), we should update the position
+        // even if a parse error occurs, to skip the problematic batch and continue processing.
+        // This prevents the routine load job from getting stuck in an infinite retry loop
+        // when encountering malformed data.
+        if (txnStatusChangeReason == TxnStatusChangeReason.PARSE_ERROR &&
+                !isPauseOnFatalParseError()) {
+            LOG.info("Parse error occurred but pause_on_fatal_parse_error is false. " +
+                    "Updating position to skip the problematic batch. txn status: {}, task: {}, job: {}",
+                    txnState.getTransactionStatus(),
+                    DebugUtil.printId(rlTaskTxnCommitAttachment.getTaskId()), id);
+            return true;
+        }
+
         // Running here, the status of the transaction should be ABORTED,
         // and it is caused by other errors. In this case, we should not update the position.
         LOG.debug("no need to update the progress of pulsar routine load. txn status: {}, " +
