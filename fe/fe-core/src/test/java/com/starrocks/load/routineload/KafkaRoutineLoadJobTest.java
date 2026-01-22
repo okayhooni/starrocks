@@ -63,6 +63,8 @@ import com.starrocks.sql.parser.SqlParser;
 import com.starrocks.system.SystemInfoService;
 import com.starrocks.thrift.TResourceInfo;
 import com.starrocks.transaction.GlobalTransactionMgr;
+import com.starrocks.transaction.TransactionState;
+import com.starrocks.transaction.TransactionStatus;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mock;
@@ -750,5 +752,126 @@ public class KafkaRoutineLoadJobTest {
         Assertions.assertTrue(result.isEmpty());
     }
 
+    @Test
+    public void testCheckCommitInfoWithParseErrorAndPauseOnFatalParseErrorFalse() {
+        // Test case: PARSE_ERROR with pause_on_fatal_parse_error=false
+        // Expected: should return true to update offset and skip problematic batch
+        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "test_job", 1L, 1L, "127.0.0.1:9020", "topic1");
+        
+        // Set pause_on_fatal_parse_error to false (default)
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(CreateRoutineLoadStmt.PAUSE_ON_FATAL_PARSE_ERROR, "false");
+        Deencapsulation.setField(job, "jobProperties", jobProperties);
+        
+        // Create mock attachment
+        RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment();
+        Deencapsulation.setField(attachment, "taskId", new UUID(1, 1));
+        
+        // Create mock transaction state with ABORTED status
+        TransactionState txnState = new TransactionState();
+        Deencapsulation.setField(txnState, "transactionStatus", TransactionStatus.ABORTED);
+        
+        // Execute: checkCommitInfo with PARSE_ERROR
+        boolean result = Deencapsulation.invoke(job, "checkCommitInfo", 
+                attachment, txnState, TxnStatusChangeReason.PARSE_ERROR);
+        
+        // Verify: should return true to update offset
+        Assertions.assertTrue(result, 
+                "When pause_on_fatal_parse_error is false, checkCommitInfo should return true for PARSE_ERROR to skip problematic batch");
+    }
+
+    @Test
+    public void testCheckCommitInfoWithParseErrorAndPauseOnFatalParseErrorTrue() {
+        // Test case: PARSE_ERROR with pause_on_fatal_parse_error=true
+        // Expected: should return false to NOT update offset (old behavior)
+        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "test_job", 1L, 1L, "127.0.0.1:9020", "topic1");
+        
+        // Set pause_on_fatal_parse_error to true
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(CreateRoutineLoadStmt.PAUSE_ON_FATAL_PARSE_ERROR, "true");
+        Deencapsulation.setField(job, "jobProperties", jobProperties);
+        
+        // Create mock attachment
+        RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment();
+        Deencapsulation.setField(attachment, "taskId", new UUID(1, 1));
+        
+        // Create mock transaction state with ABORTED status
+        TransactionState txnState = new TransactionState();
+        Deencapsulation.setField(txnState, "transactionStatus", TransactionStatus.ABORTED);
+        
+        // Execute: checkCommitInfo with PARSE_ERROR
+        boolean result = Deencapsulation.invoke(job, "checkCommitInfo", 
+                attachment, txnState, TxnStatusChangeReason.PARSE_ERROR);
+        
+        // Verify: should return false to NOT update offset
+        Assertions.assertFalse(result, 
+                "When pause_on_fatal_parse_error is true, checkCommitInfo should return false for PARSE_ERROR");
+    }
+
+    @Test
+    public void testCheckCommitInfoWithCommittedTransaction() {
+        // Test case: COMMITTED transaction should always return true
+        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "test_job", 1L, 1L, "127.0.0.1:9020", "topic1");
+        
+        // Create mock attachment
+        RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment();
+        Deencapsulation.setField(attachment, "taskId", new UUID(1, 1));
+        
+        // Create mock transaction state with COMMITTED status
+        TransactionState txnState = new TransactionState();
+        Deencapsulation.setField(txnState, "transactionStatus", TransactionStatus.COMMITTED);
+        
+        // Execute: checkCommitInfo with null reason (COMMITTED doesn't need reason)
+        boolean result = Deencapsulation.invoke(job, "checkCommitInfo", 
+                attachment, txnState, (TxnStatusChangeReason) null);
+        
+        // Verify: should return true
+        Assertions.assertTrue(result, 
+                "COMMITTED transaction should always return true");
+    }
+
+    @Test
+    public void testCheckCommitInfoWithNoRowsImported() {
+        // Test case: NO_ROWS_IMPORTED should return true to update offset
+        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "test_job", 1L, 1L, "127.0.0.1:9020", "topic1");
+        
+        // Create mock attachment
+        RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment();
+        Deencapsulation.setField(attachment, "taskId", new UUID(1, 1));
+        
+        // Create mock transaction state with ABORTED status
+        TransactionState txnState = new TransactionState();
+        Deencapsulation.setField(txnState, "transactionStatus", TransactionStatus.ABORTED);
+        
+        // Execute: checkCommitInfo with NO_ROWS_IMPORTED
+        boolean result = Deencapsulation.invoke(job, "checkCommitInfo", 
+                attachment, txnState, TxnStatusChangeReason.NO_ROWS_IMPORTED);
+        
+        // Verify: should return true
+        Assertions.assertTrue(result, 
+                "NO_ROWS_IMPORTED should return true to update offset");
+    }
+
+    @Test
+    public void testCheckCommitInfoWithOtherAbortedReason() {
+        // Test case: Other abort reasons (like TIMEOUT) should return false
+        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "test_job", 1L, 1L, "127.0.0.1:9020", "topic1");
+        
+        // Create mock attachment
+        RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment();
+        Deencapsulation.setField(attachment, "taskId", new UUID(1, 1));
+        
+        // Create mock transaction state with ABORTED status
+        TransactionState txnState = new TransactionState();
+        Deencapsulation.setField(txnState, "transactionStatus", TransactionStatus.ABORTED);
+        
+        // Execute: checkCommitInfo with TIMEOUT
+        boolean result = Deencapsulation.invoke(job, "checkCommitInfo", 
+                attachment, txnState, TxnStatusChangeReason.TIMEOUT);
+        
+        // Verify: should return false
+        Assertions.assertFalse(result, 
+                "TIMEOUT should return false to NOT update offset");
+    }
 
 }

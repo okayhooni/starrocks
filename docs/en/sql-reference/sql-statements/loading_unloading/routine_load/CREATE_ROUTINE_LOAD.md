@@ -207,7 +207,11 @@ PROPERTIES ("<key1>" = "<value1>"[, "<key2>" = "<value2>" ...])
 #### `pause_on_fatal_parse_error`
 
 **Required**: No\
-**Description**:  Specifies whether to automatically pause the job upon encountering unrecoverable data parsing errors. Valid values: `true` and `false`. Default value: `false`. This parameter is supported since v3.3.12/v3.4.2. <br />Such parsing errors are typically caused by illegal data formats, such as:<ul><li>Importing a JSON array without setting `strip_outer_array`.</li><li>Importing JSON data, but the Kafka message contains illegal JSON, such as `abcd`.</li></ul> 
+**Description**:  Specifies whether to automatically pause the job upon encountering unrecoverable data parsing errors. Valid values: `true` and `false`. Default value: `false`. This parameter is supported since v3.3.12/v3.4.2. <br />Such parsing errors are typically caused by illegal data formats, such as:<ul><li>Importing a JSON array without setting `strip_outer_array`.</li><li>Importing JSON data, but the Kafka message contains illegal JSON, such as `abcd`.</li></ul>
+
+**Behavior based on value:**
+- **`false` (default)**: When a parse error occurs, the job will NOT pause. Instead, the consumer offset will be updated to skip the problematic batch and continue processing subsequent records. This prevents the job from getting stuck in an infinite retry loop when encountering malformed data. Note that the entire batch containing the problematic record will be skipped, not just the individual record.
+- **`true`**: When a parse error occurs, the job will pause and the consumer offset will NOT be updated. This allows you to investigate the issue before resuming the job. 
 
 
 #### `data_source`, `data_source_properties`

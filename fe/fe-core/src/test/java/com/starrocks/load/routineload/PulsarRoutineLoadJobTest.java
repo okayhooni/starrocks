@@ -42,9 +42,14 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+
+import com.starrocks.transaction.TransactionState;
+import com.starrocks.transaction.TransactionStatus;
 
 import static org.mockito.Mockito.when;
 
@@ -200,5 +205,63 @@ public class PulsarRoutineLoadJobTest {
         Assertions.assertThrows(StarRocksException.class, () -> {
             PulsarRoutineLoadJob.fromCreateStmt(stmt);
         });
+    }
+
+    @Test
+    public void testCheckCommitInfoWithParseErrorAndPauseOnFatalParseErrorFalse() {
+        // Test case: PARSE_ERROR with pause_on_fatal_parse_error=false
+        // Expected: should return true to update position and skip problematic batch
+        PulsarRoutineLoadJob job = new PulsarRoutineLoadJob(1L, "test_job", 1L, 1L,
+                "http://pulsar-service", "topic1", "sub1");
+        
+        // Set pause_on_fatal_parse_error to false (default)
+        Map<String, String> jobProperties = new HashMap<>();
+        jobProperties.put(CreateRoutineLoadStmt.PAUSE_ON_FATAL_PARSE_ERROR, "false");
+        Deencapsulation.setField(job, "jobProperties", jobProperties);
+        
+        // Create mock attachment
+        RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment();
+        Deencapsulation.setField(attachment, "taskId", new UUID(1, 1));
+        
+        // Create mock transaction state with ABORTED status
+        TransactionState txnState = new TransactionState();
+        Deencapsulation.setField(txnState, "transactionStatus", TransactionStatus.ABORTED);
+        
+        // Execute: checkCommitInfo with PARSE_ERROR
+        boolean result = Deencapsulation.invoke(job, "checkCommitInfo", 
+                attachment, txnState, TxnStatusChangeReason.PARSE_ERROR);
+        
+        // Verify: should return true to update position
+        Assertions.assertTrue(result, 
+                "When pause_on_fatal_parse_error is false, checkCommitInfo should return true for PARSE_ERROR to skip problematic batch");
+    }
+
+    @Test
+    public void testCheckCommitInfoWithParseErrorAndPauseOnFatalParseErrorTrue() {
+        // Test case: PARSE_ERROR with pause_on_fatal_parse_error=true
+        // Expected: should return false to NOT update position (old behavior)
+        PulsarRoutineLoadJob job = new PulsarRoutineLoadJob(1L, "test_job", 1L, 1L,
+                "http://pulsar-service", "topic1", "sub1");
+        
+        // Set pause_on_fatal_parse_error to true
+        Map<String, String> jobProperties = new HashMap<>();
+        jobProperties.put(CreateRoutineLoadStmt.PAUSE_ON_FATAL_PARSE_ERROR, "true");
+        Deencapsulation.setField(job, "jobProperties", jobProperties);
+        
+        // Create mock attachment
+        RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment();
+        Deencapsulation.setField(attachment, "taskId", new UUID(1, 1));
+        
+        // Create mock transaction state with ABORTED status
+        TransactionState txnState = new TransactionState();
+        Deencapsulation.setField(txnState, "transactionStatus", TransactionStatus.ABORTED);
+        
+        // Execute: checkCommitInfo with PARSE_ERROR
+        boolean result = Deencapsulation.invoke(job, "checkCommitInfo", 
+                attachment, txnState, TxnStatusChangeReason.PARSE_ERROR);
+        
+        // Verify: should return false to NOT update position
+        Assertions.assertFalse(result, 
+                "When pause_on_fatal_parse_error is true, checkCommitInfo should return false for PARSE_ERROR");
     }
 }
