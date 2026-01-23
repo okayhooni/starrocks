@@ -213,6 +213,34 @@ PROPERTIES ("<key1>" = "<value1>"[, "<key2>" = "<value2>" ...])
 - **`false` (default)**: When a parse error occurs, the job will NOT pause. Instead, the consumer offset will be updated to skip the problematic batch and continue processing subsequent records. This prevents the job from getting stuck in an infinite retry loop when encountering malformed data. Note that the entire batch containing the problematic record will be skipped, not just the individual record.
 - **`true`**: When a parse error occurs, the job will pause and the consumer offset will NOT be updated. This allows you to investigate the issue before resuming the job. 
 
+#### `errors.tolerance`
+
+**Required**: No\
+**Description**: Specifies the error tolerance mode for the Routine Load job, similar to Kafka Connect's error handling. Valid values: `none` and `all`. Default value: `none`. This parameter is supported since v3.5.0.
+
+**Behavior based on value:**
+- **`none` (default)**: Error tolerance is disabled. The job behaves according to the `pause_on_fatal_parse_error` setting.
+- **`all`**: Error tolerance is enabled. When a parse error occurs, the problematic batch will be skipped and the consumer offset will be updated. This automatically sets `pause_on_fatal_parse_error` to `false`.
+
+:::note
+This parameter provides a more intuitive, Kafka Connect-compatible way to configure error handling. Setting `errors.tolerance = "all"` is equivalent to setting `pause_on_fatal_parse_error = "false"`.
+:::
+
+#### `errors.deadletterqueue.topic.name`
+
+**Required**: No\
+**Description**: The Kafka topic name for the Dead Letter Queue (DLQ). When specified along with `errors.tolerance = "all"`, problematic records would be sent to this topic for later analysis. This parameter is supported since v3.5.0.
+
+:::caution
+**Current Limitation**: As of v3.5.0, this parameter is parsed and stored, but the actual DLQ functionality (sending messages to the DLQ topic) is not yet implemented. This is planned for a future release. Currently, problematic batches are simply skipped.
+:::
+
+#### `errors.log.enable`
+
+**Required**: No\
+**Description**: Specifies whether to log error records. Valid values: `true` and `false`. Default value: `true`. This parameter is supported since v3.5.0.
+
+When enabled, error information will be logged when parse errors occur and the job is configured to tolerate errors (via `errors.tolerance = "all"` or `pause_on_fatal_parse_error = "false"`).
 
 #### `data_source`, `data_source_properties`
 

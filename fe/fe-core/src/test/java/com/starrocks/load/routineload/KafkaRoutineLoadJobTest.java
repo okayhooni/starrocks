@@ -874,4 +874,87 @@ public class KafkaRoutineLoadJobTest {
                 "TIMEOUT should return false to NOT update offset");
     }
 
+    @Test
+    public void testCheckCommitInfoWithErrorsToleranceAll() {
+        // Test case: When errors.tolerance="all", PARSE_ERROR should return true
+        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "test_job", 1L, 1L, "127.0.0.1:9020", "topic1");
+        
+        // Set errors.tolerance to "all"
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(CreateRoutineLoadStmt.ERRORS_TOLERANCE, CreateRoutineLoadStmt.ERRORS_TOLERANCE_ALL);
+        Deencapsulation.setField(job, "jobProperties", jobProperties);
+        
+        // Create mock attachment
+        RLTaskTxnCommitAttachment attachment = new RLTaskTxnCommitAttachment();
+        Deencapsulation.setField(attachment, "taskId", new UUID(1, 1));
+        
+        // Create mock transaction state with ABORTED status
+        TransactionState txnState = new TransactionState();
+        Deencapsulation.setField(txnState, "transactionStatus", TransactionStatus.ABORTED);
+        
+        // Execute: checkCommitInfo with PARSE_ERROR
+        boolean result = Deencapsulation.invoke(job, "checkCommitInfo", 
+                attachment, txnState, TxnStatusChangeReason.PARSE_ERROR);
+        
+        // Verify: should return true when errors.tolerance="all"
+        Assertions.assertTrue(result, 
+                "PARSE_ERROR with errors.tolerance='all' should return true to update offset");
+    }
+
+    @Test
+    public void testGetErrorsDlqTopicName() {
+        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "test_job", 1L, 1L, "127.0.0.1:9020", "topic1");
+        
+        // Test default value
+        Assertions.assertEquals("", job.getErrorsDlqTopicName(),
+                "Default DLQ topic name should be empty");
+        
+        // Set DLQ topic name
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(CreateRoutineLoadStmt.ERRORS_DLQ_TOPIC_NAME, "my-dlq-topic");
+        Deencapsulation.setField(job, "jobProperties", jobProperties);
+        
+        // Verify getter
+        Assertions.assertEquals("my-dlq-topic", job.getErrorsDlqTopicName(),
+                "Should return the configured DLQ topic name");
+    }
+
+    @Test
+    public void testGetErrorsTolerance() {
+        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "test_job", 1L, 1L, "127.0.0.1:9020", "topic1");
+        
+        // Test default value
+        Assertions.assertEquals(CreateRoutineLoadStmt.ERRORS_TOLERANCE_NONE, job.getErrorsTolerance(),
+                "Default errors.tolerance should be 'none'");
+        
+        // Set errors.tolerance to "all"
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(CreateRoutineLoadStmt.ERRORS_TOLERANCE, CreateRoutineLoadStmt.ERRORS_TOLERANCE_ALL);
+        Deencapsulation.setField(job, "jobProperties", jobProperties);
+        
+        // Verify getter
+        Assertions.assertEquals(CreateRoutineLoadStmt.ERRORS_TOLERANCE_ALL, job.getErrorsTolerance(),
+                "Should return 'all' when configured");
+        Assertions.assertTrue(job.isErrorsToleranceAll(),
+                "isErrorsToleranceAll() should return true");
+    }
+
+    @Test
+    public void testIsErrorsLogEnable() {
+        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "test_job", 1L, 1L, "127.0.0.1:9020", "topic1");
+        
+        // Test default value
+        Assertions.assertTrue(job.isErrorsLogEnable(),
+                "Default errors.log.enable should be true");
+        
+        // Set errors.log.enable to false
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(CreateRoutineLoadStmt.ERRORS_LOG_ENABLE, "false");
+        Deencapsulation.setField(job, "jobProperties", jobProperties);
+        
+        // Verify getter
+        Assertions.assertFalse(job.isErrorsLogEnable(),
+                "Should return false when configured");
+    }
+
 }

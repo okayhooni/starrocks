@@ -122,6 +122,16 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public static final String PAUSE_ON_FATAL_PARSE_ERROR = "pause_on_fatal_parse_error";
 
+    // Dead Letter Queue (DLQ) properties - similar to Kafka Connect's error handling
+    // When errors.tolerance is "all", malformed records will be skipped and optionally sent to DLQ
+    public static final String ERRORS_TOLERANCE = "errors.tolerance";
+    public static final String ERRORS_DLQ_TOPIC_NAME = "errors.deadletterqueue.topic.name";
+    public static final String ERRORS_LOG_ENABLE = "errors.log.enable";
+    // Default values for DLQ properties
+    public static final String ERRORS_TOLERANCE_NONE = "none";
+    public static final String ERRORS_TOLERANCE_ALL = "all";
+    public static final boolean DEFAULT_ERRORS_LOG_ENABLE = true;
+
     // kafka type properties
     public static final String KAFKA_BROKER_LIST_PROPERTY = "kafka_broker_list";
     public static final String KAFKA_TOPIC_PROPERTY = "kafka_topic";
@@ -153,6 +163,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(MAX_BATCH_ROWS_PROPERTY)
             .add(MAX_BATCH_SIZE_PROPERTY)
             .add(PAUSE_ON_FATAL_PARSE_ERROR)
+            .add(ERRORS_TOLERANCE)
+            .add(ERRORS_DLQ_TOPIC_NAME)
+            .add(ERRORS_LOG_ENABLE)
             .add(FORMAT)
             .add(JSONPATHS)
             .add(STRIP_OUTER_ARRAY)
@@ -213,6 +226,15 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private String mergeConditionStr;
     private String partialUpdateMode = "row";
     private boolean pauseOnFatalParseError = RoutineLoadJob.DEFAULT_PAUSE_ON_FATAL_PARSE_ERROR;
+
+    // Dead Letter Queue (DLQ) properties
+    // errors.tolerance: "none" (default) or "all" - when "all", malformed records are skipped
+    private String errorsTolerance = ERRORS_TOLERANCE_NONE;
+    // errors.deadletterqueue.topic.name: DLQ topic name (optional, requires BE producer support)
+    private String errorsDlqTopicName = "";
+    // errors.log.enable: whether to log error records (default: true)
+    private boolean errorsLogEnable = DEFAULT_ERRORS_LOG_ENABLE;
+
     /**
      * RoutineLoad support json data.
      * Require Params:
@@ -389,6 +411,18 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public boolean isPauseOnFatalParseError() {
         return pauseOnFatalParseError;
+    }
+
+    public String getErrorsTolerance() {
+        return errorsTolerance;
+    }
+
+    public String getErrorsDlqTopicName() {
+        return errorsDlqTopicName;
+    }
+
+    public boolean isErrorsLogEnable() {
+        return errorsLogEnable;
     }
 
     public String getFormat() {
@@ -600,6 +634,25 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         pauseOnFatalParseError = Util.getBooleanPropertyOrDefault(jobProperties.get(PAUSE_ON_FATAL_PARSE_ERROR),
                 RoutineLoadJob.DEFAULT_PAUSE_ON_FATAL_PARSE_ERROR,
                 PAUSE_ON_FATAL_PARSE_ERROR + " should be a boolean");
+
+        // Parse DLQ properties
+        String toleranceValue = jobProperties.get(ERRORS_TOLERANCE);
+        if (toleranceValue != null) {
+            toleranceValue = toleranceValue.toLowerCase();
+            if (!toleranceValue.equals(ERRORS_TOLERANCE_NONE) && !toleranceValue.equals(ERRORS_TOLERANCE_ALL)) {
+                throw new StarRocksException(ERRORS_TOLERANCE + " should be either '" +
+                        ERRORS_TOLERANCE_NONE + "' or '" + ERRORS_TOLERANCE_ALL + "'");
+            }
+            errorsTolerance = toleranceValue;
+            // When errors.tolerance is "all", automatically set pause_on_fatal_parse_error to false
+            if (errorsTolerance.equals(ERRORS_TOLERANCE_ALL)) {
+                pauseOnFatalParseError = false;
+            }
+        }
+        errorsDlqTopicName = jobProperties.getOrDefault(ERRORS_DLQ_TOPIC_NAME, "");
+        errorsLogEnable = Util.getBooleanPropertyOrDefault(jobProperties.get(ERRORS_LOG_ENABLE),
+                DEFAULT_ERRORS_LOG_ENABLE,
+                ERRORS_LOG_ENABLE + " should be a boolean");
 
         format = jobProperties.get(FORMAT);
         if (format != null) {

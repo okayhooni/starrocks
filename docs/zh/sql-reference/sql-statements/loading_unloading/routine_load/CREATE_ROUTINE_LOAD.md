@@ -212,6 +212,35 @@ PROPERTIES ("<key1>" = "<value1>"[, "<key2>" = "<value2>" ...])
 - **`false`（默认）**：当发生解析错误时，作业不会暂停。相反，消费者偏移量将被更新以跳过有问题的批次，并继续处理后续记录。这可以防止作业在遇到格式错误的数据时陷入无限重试循环。请注意，将跳过包含问题记录的整个批次，而不仅仅是单个记录。
 - **`true`**：当发生解析错误时，作业将暂停，消费者偏移量不会更新。这允许您在恢复作业之前调查问题。
 
+#### `errors.tolerance`
+
+**必需**：否\
+**描述**：指定 Routine Load 作业的错误容忍模式，类似于 Kafka Connect 的错误处理。有效值：`none` 和 `all`。默认值：`none`。此参数自 v3.5.0 起支持。
+
+**根据值的行为：**
+- **`none`（默认）**：禁用错误容忍。作业按照 `pause_on_fatal_parse_error` 设置的行为执行。
+- **`all`**：启用错误容忍。当发生解析错误时，将跳过有问题的批次并更新消费者偏移量。这会自动将 `pause_on_fatal_parse_error` 设置为 `false`。
+
+:::note
+此参数提供了一种更直观、与 Kafka Connect 兼容的错误处理配置方式。设置 `errors.tolerance = "all"` 等同于设置 `pause_on_fatal_parse_error = "false"`。
+:::
+
+#### `errors.deadletterqueue.topic.name`
+
+**必需**：否\
+**描述**：死信队列（DLQ）的 Kafka 主题名称。当与 `errors.tolerance = "all"` 一起指定时，有问题的记录将被发送到此主题以供后续分析。此参数自 v3.5.0 起支持。
+
+:::caution
+**当前限制**：截至 v3.5.0，此参数仅被解析和存储，但实际的 DLQ 功能（将消息发送到 DLQ 主题）尚未实现。这计划在未来版本中实现。目前，有问题的批次仅被跳过。
+:::
+
+#### `errors.log.enable`
+
+**必需**：否\
+**描述**：指定是否记录错误记录。有效值：`true` 和 `false`。默认值：`true`。此参数自 v3.5.0 起支持。
+
+启用时，当发生解析错误且作业配置为容忍错误（通过 `errors.tolerance = "all"` 或 `pause_on_fatal_parse_error = "false"`）时，将记录错误信息。
+
 #### `data_source`, `data_source_properties`
 
 必需。数据源及相关属性。

@@ -144,6 +144,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback
     public static final boolean DEFAULT_STRICT_MODE = false; // default is false
     public static final boolean DEFAULT_PAUSE_ON_FATAL_PARSE_ERROR = false;
 
+    // Default values for DLQ properties
+    public static final String DEFAULT_ERRORS_TOLERANCE = CreateRoutineLoadStmt.ERRORS_TOLERANCE_NONE;
+    public static final String DEFAULT_ERRORS_DLQ_TOPIC_NAME = "";
+    public static final boolean DEFAULT_ERRORS_LOG_ENABLE = true;
+
     protected static final String STAR_STRING = "*";
 
     /*
@@ -390,6 +395,10 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback
         jobProperties.put(LoadStmt.TIMEZONE, stmt.getTimezone());
         jobProperties.put(LoadStmt.STRICT_MODE, String.valueOf(stmt.isStrictMode()));
         jobProperties.put(CreateRoutineLoadStmt.PAUSE_ON_FATAL_PARSE_ERROR, String.valueOf(stmt.isPauseOnFatalParseError()));
+        // DLQ properties
+        jobProperties.put(CreateRoutineLoadStmt.ERRORS_TOLERANCE, stmt.getErrorsTolerance());
+        jobProperties.put(CreateRoutineLoadStmt.ERRORS_DLQ_TOPIC_NAME, stmt.getErrorsDlqTopicName());
+        jobProperties.put(CreateRoutineLoadStmt.ERRORS_LOG_ENABLE, String.valueOf(stmt.isErrorsLogEnable()));
         if (stmt.getMergeConditionStr() != null) {
             jobProperties.put(LoadStmt.MERGE_CONDITION, stmt.getMergeConditionStr());
         }
@@ -635,6 +644,34 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback
             return DEFAULT_PAUSE_ON_FATAL_PARSE_ERROR;
         }
         return Boolean.valueOf(value);
+    }
+
+    public String getErrorsTolerance() {
+        String value = jobProperties.get(CreateRoutineLoadStmt.ERRORS_TOLERANCE);
+        if (value == null) {
+            return DEFAULT_ERRORS_TOLERANCE;
+        }
+        return value;
+    }
+
+    public String getErrorsDlqTopicName() {
+        String value = jobProperties.get(CreateRoutineLoadStmt.ERRORS_DLQ_TOPIC_NAME);
+        if (value == null) {
+            return DEFAULT_ERRORS_DLQ_TOPIC_NAME;
+        }
+        return value;
+    }
+
+    public boolean isErrorsLogEnable() {
+        String value = jobProperties.get(CreateRoutineLoadStmt.ERRORS_LOG_ENABLE);
+        if (value == null) {
+            return DEFAULT_ERRORS_LOG_ENABLE;
+        }
+        return Boolean.valueOf(value);
+    }
+
+    public boolean isErrorsToleranceAll() {
+        return CreateRoutineLoadStmt.ERRORS_TOLERANCE_ALL.equals(getErrorsTolerance());
     }
 
     public String getTimezone() {
@@ -1767,6 +1804,17 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback
         sb.append("\"").append(CreateRoutineLoadStmt.PAUSE_ON_FATAL_PARSE_ERROR).append("\"=\"");
         sb.append(isPauseOnFatalParseError()).append("\",\n");
 
+        sb.append("\"").append(CreateRoutineLoadStmt.ERRORS_TOLERANCE).append("\"=\"");
+        sb.append(getErrorsTolerance()).append("\",\n");
+
+        if (!getErrorsDlqTopicName().isEmpty()) {
+            sb.append("\"").append(CreateRoutineLoadStmt.ERRORS_DLQ_TOPIC_NAME).append("\"=\"");
+            sb.append(getErrorsDlqTopicName()).append("\",\n");
+        }
+
+        sb.append("\"").append(CreateRoutineLoadStmt.ERRORS_LOG_ENABLE).append("\"=\"");
+        sb.append(isErrorsLogEnable()).append("\",\n");
+
         sb.append("\"").append(LoadStmt.TIMEZONE).append("\"=\"");
         sb.append(getTimezone()).append("\",\n");
 
@@ -2005,6 +2053,22 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback
                 } else {
                     throw new DdlException("Warehouse " + warehouseName + " not exist");
                 }
+            }
+        }
+
+        // Handle errors.tolerance property
+        if (copiedJobProperties.containsKey(CreateRoutineLoadStmt.ERRORS_TOLERANCE)) {
+            String toleranceValue = copiedJobProperties.get(CreateRoutineLoadStmt.ERRORS_TOLERANCE).toLowerCase();
+            if (!toleranceValue.equals(CreateRoutineLoadStmt.ERRORS_TOLERANCE_NONE) &&
+                    !toleranceValue.equals(CreateRoutineLoadStmt.ERRORS_TOLERANCE_ALL)) {
+                throw new DdlException(CreateRoutineLoadStmt.ERRORS_TOLERANCE + " should be either '" +
+                        CreateRoutineLoadStmt.ERRORS_TOLERANCE_NONE + "' or '" +
+                        CreateRoutineLoadStmt.ERRORS_TOLERANCE_ALL + "'");
+            }
+            copiedJobProperties.put(CreateRoutineLoadStmt.ERRORS_TOLERANCE, toleranceValue);
+            // When errors.tolerance is "all", automatically set pause_on_fatal_parse_error to false
+            if (toleranceValue.equals(CreateRoutineLoadStmt.ERRORS_TOLERANCE_ALL)) {
+                copiedJobProperties.put(CreateRoutineLoadStmt.PAUSE_ON_FATAL_PARSE_ERROR, "false");
             }
         }
 

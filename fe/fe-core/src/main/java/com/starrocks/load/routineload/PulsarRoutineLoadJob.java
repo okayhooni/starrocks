@@ -280,16 +280,20 @@ public class PulsarRoutineLoadJob extends RoutineLoadJob {
             return true;
         }
 
-        // When pause_on_fatal_parse_error is false (default), we should update the position
-        // even if a parse error occurs, to skip the problematic batch and continue processing.
-        // This prevents the routine load job from getting stuck in an infinite retry loop
-        // when encountering malformed data.
+        // When errors.tolerance is "all" or pause_on_fatal_parse_error is false,
+        // we should update the position even if a parse error occurs, to skip the problematic
+        // batch and continue processing. This prevents the routine load job from getting
+        // stuck in an infinite retry loop when encountering malformed data.
+        // Note: errors.tolerance="all" automatically sets pause_on_fatal_parse_error=false
         if (txnStatusChangeReason == TxnStatusChangeReason.PARSE_ERROR &&
-                !isPauseOnFatalParseError()) {
-            LOG.info("Parse error occurred but pause_on_fatal_parse_error is false. " +
-                    "Updating position to skip the problematic batch. txn status: {}, task: {}, job: {}",
+                (isErrorsToleranceAll() || !isPauseOnFatalParseError())) {
+            LOG.info("Parse error occurred but error tolerance is enabled (errors.tolerance={}, " +
+                    "pause_on_fatal_parse_error={}). Updating position to skip the problematic batch. " +
+                    "txn status: {}, task: {}, job: {}, dlq_topic: {}",
+                    getErrorsTolerance(), isPauseOnFatalParseError(),
                     txnState.getTransactionStatus(),
-                    DebugUtil.printId(rlTaskTxnCommitAttachment.getTaskId()), id);
+                    DebugUtil.printId(rlTaskTxnCommitAttachment.getTaskId()), id,
+                    getErrorsDlqTopicName().isEmpty() ? "(not configured)" : getErrorsDlqTopicName());
             return true;
         }
 
