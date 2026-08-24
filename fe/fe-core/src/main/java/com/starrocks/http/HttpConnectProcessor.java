@@ -74,6 +74,10 @@ public class HttpConnectProcessor extends ConnectProcessor {
         StatementBase parsedStmt = ((HttpConnectContext) ctx).getStatement();
         String sql = parsedStmt.getOrigStmt().originStmt;
 
+        // This statement is submitted by a client, so it must be rewritten by the security
+        // policies (Ranger column masking / row-level filtering), like the MySQL protocol path.
+        markNeedRewrittenByPolicy(parsedStmt);
+
         executor = new StmtExecutor(ctx, parsedStmt);
         ctx.setExecutor(executor);
 

@@ -65,8 +65,10 @@ import com.starrocks.service.arrow.flight.sql.ArrowFlightSqlConnectProcessor;
 import com.starrocks.sql.analyzer.AnalyzerUtils;
 import com.starrocks.sql.analyzer.DDLTestBase;
 import com.starrocks.sql.analyzer.SemanticException;
+import com.starrocks.sql.ast.AstTraverser;
 import com.starrocks.sql.ast.PrepareStmt;
 import com.starrocks.sql.ast.StatementBase;
+import com.starrocks.sql.ast.TableRelation;
 import com.starrocks.sql.common.LargeInPredicateException;
 import com.starrocks.system.Frontend;
 import com.starrocks.thrift.TMasterOpRequest;
@@ -1251,6 +1253,53 @@ public class ConnectProcessorTest extends DDLTestBase {
         Assertions.assertEquals(ConnectProcessor.class, proxyExecute.getDeclaringClass(),
                 "ArrowFlightSqlConnectProcessor must inherit proxyExecute() so forwarded queries "
                         + "populate queried_relations");
+    }
+
+    // SecurityPolicyRewriteRule is applied per TableRelation (views are marked separately by
+    // QueryAnalyzer), so the masking opt-in is only meaningful on table relations.
+    private static List<TableRelation> collectTableRelations(StatementBase stmt) {
+        List<TableRelation> tableRelations = new ArrayList<>();
+        new AstTraverser<Void, Void>() {
+            @Override
+            public Void visitTable(TableRelation node, Void context) {
+                tableRelations.add(node);
+                return null;
+            }
+        }.visit(stmt);
+        return tableRelations;
+    }
+
+    // Relation#needRewrittenByPolicy defaults to false so that internal flows (mv refresh, create
+    // view, ...) are not policy-rewritten. Client-facing protocol front-ends must therefore opt in
+    // explicitly -- if this default ever flipped, the opt-in call sites would become no-ops.
+    @Test
+    public void testTableRelationDefaultsToNoPolicyRewrite() {
+        StatementBase stmt = com.starrocks.sql.parser.SqlParser.parse("select k1 from db1.tbl1", 0L).get(0);
+
+        List<TableRelation> tableRelations = collectTableRelations(stmt);
+        Assertions.assertEquals(1, tableRelations.size());
+        Assertions.assertFalse(tableRelations.get(0).isNeedRewrittenByPolicy(),
+                "TableRelation must default to no policy rewrite, otherwise internal flows would be rewritten");
+    }
+
+    // markNeedRewrittenByPolicy() is the single opt-in shared by every client-facing front-end
+    // (MySQL, Arrow Flight SQL, HTTP SQL). It must mark every table relation, including the ones
+    // nested in joins and subqueries -- a partially marked tree silently leaves columns unmasked.
+    @Test
+    public void testMarkNeedRewrittenByPolicyMarksNestedTableRelations() {
+        StatementBase stmt = com.starrocks.sql.parser.SqlParser.parse(
+                "select a.k1 from db1.tbl1 a join db1.tbl2 b on a.k1 = b.k1 "
+                        + "where a.k1 in (select k1 from db1.tbl3)", 0L).get(0);
+
+        ConnectProcessor.markNeedRewrittenByPolicy(stmt);
+
+        List<TableRelation> tableRelations = collectTableRelations(stmt);
+        Assertions.assertEquals(3, tableRelations.size(),
+                "join + subquery should yield three table relations");
+        for (TableRelation tableRelation : tableRelations) {
+            Assertions.assertTrue(tableRelation.isNeedRewrittenByPolicy(),
+                    "every table relation must be marked, otherwise masking is silently skipped for it");
+        }
     }
 
     @Test

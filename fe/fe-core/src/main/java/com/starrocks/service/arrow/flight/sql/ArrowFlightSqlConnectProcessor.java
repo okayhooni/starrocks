@@ -309,6 +309,10 @@ public class ArrowFlightSqlConnectProcessor extends ConnectProcessor {
         StatementBase parsedStmt = parse(originStmt, ctx.getSessionVariable());
         Tracers.init(ctx, parsedStmt.getTraceMode(), parsedStmt.getTraceModule());
 
+        // This statement is submitted by a client, so it must be rewritten by the security
+        // policies (Ranger column masking / row-level filtering), like the MySQL protocol path.
+        markNeedRewrittenByPolicy(parsedStmt);
+
         executor = new StmtExecutor(ctx, parsedStmt, deploymentFinished);
         ctx.setIsLastStmt(true);
         ctx.setExecutor(executor);

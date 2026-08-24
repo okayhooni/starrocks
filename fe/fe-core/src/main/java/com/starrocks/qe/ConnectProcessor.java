@@ -609,6 +609,26 @@ public class ConnectProcessor {
         }
     }
 
+    /**
+     * Opt a client-submitted statement into security policy rewriting, so that Ranger column
+     * masking and row-level filtering are applied while the statement is analyzed.
+     *
+     * <p>{@link Relation#isNeedRewrittenByPolicy()} defaults to {@code false} on purpose, because
+     * internal flows (materialized view refresh, create view, ...) must not be policy-rewritten.
+     * As a consequence every protocol front-end that executes a statement on behalf of a client
+     * has to opt in explicitly; forgetting to do so silently disables masking and row filtering
+     * for that protocol.
+     */
+    protected static void markNeedRewrittenByPolicy(StatementBase parsedStmt) {
+        new AstTraverser<Void, Void>() {
+            @Override
+            public Void visitRelation(Relation relation, Void context) {
+                relation.setNeedRewrittenByPolicy(true);
+                return null;
+            }
+        }.visit(parsedStmt);
+    }
+
     // execute this sql and audit current sql unless throw LargeInPredicateException
     private void executeStmtWithAudit(StatementBase parsedStmt, String auditSql) throws Exception {
         try {
@@ -616,13 +636,7 @@ public class ConnectProcessor {
             ctx.setExecutor(executor);
 
             //Build View SQL without Policy Rewrite
-            new AstTraverser<Void, Void>() {
-                @Override
-                public Void visitRelation(Relation relation, Void context) {
-                    relation.setNeedRewrittenByPolicy(true);
-                    return null;
-                }
-            }.visit(parsedStmt);
+            markNeedRewrittenByPolicy(parsedStmt);
 
             if (ctx.getQueryDetail() == null) {
                 executor.addRunningQueryDetail(parsedStmt);
@@ -1297,13 +1311,7 @@ public class ConnectProcessor {
             ctx.setMultiStmt(stmts.size() > 1);
             StatementBase statement = stmts.get(idx);
             //Build View SQL without Policy Rewrite
-            new AstTraverser<Void, Void>() {
-                @Override
-                public Void visitRelation(Relation relation, Void context) {
-                    relation.setNeedRewrittenByPolicy(true);
-                    return null;
-                }
-            }.visit(statement);
+            markNeedRewrittenByPolicy(statement);
             statement.setOrigStmt(new OriginStatement(request.getSql(), idx));
 
             executor = doProxyExecute(result, request, statement, requestFE);
